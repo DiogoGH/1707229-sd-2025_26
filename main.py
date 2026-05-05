@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
+from docx import Document
 import pdfplumber
 import io
 import os
@@ -10,13 +11,6 @@ app = FastAPI(
     description="Serviço REST para extração de texto de documentos PDF e DOCX.",
     version="1.0.0"
 )
-
-
-@app.get("/")
-def home():
-    return {
-        "message": "Web Service de Extração de Texto ativo."
-    }
 
 
 def extrair_texto_pdf(file_bytes: bytes) -> str:
@@ -40,6 +34,35 @@ def extrair_texto_pdf(file_bytes: bytes) -> str:
             if texto_pagina:
                 texto_extraido += f"\n--- Página {numero_pagina} ---\n"
                 texto_extraido += texto_pagina + "\n"
+
+    return texto_extraido.strip()
+
+
+def extrair_texto_docx(file_bytes: bytes) -> str:
+    """
+    Função responsável por extrair texto de um ficheiro DOCX.
+    Lê os parágrafos e as tabelas existentes no documento.
+    """
+
+    texto_extraido = ""
+
+    # Abre o documento DOCX a partir dos bytes recebidos no upload
+    documento = Document(io.BytesIO(file_bytes))
+
+    # Extrai o texto dos parágrafos
+    for paragrafo in documento.paragraphs:
+        if paragrafo.text.strip():
+            texto_extraido += paragrafo.text + "\n"
+
+    # Extrai o texto das tabelas, caso existam
+    for tabela in documento.tables:
+        for linha in tabela.rows:
+            valores_linha = []
+
+            for celula in linha.cells:
+                valores_linha.append(celula.text.strip())
+
+            texto_extraido += " | ".join(valores_linha) + "\n"
 
     return texto_extraido.strip()
 
@@ -82,18 +105,12 @@ async def extract_text(file: UploadFile = File(...)):
         )
 
     try:
-        # Para já, neste commit, só extraímos texto de PDFs
+        # Extrai texto conforme o tipo de ficheiro recebido
         if extensao == ".pdf":
             texto = extrair_texto_pdf(file_bytes)
 
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="A extração de ficheiros DOCX será implementada no próximo passo."
-            )
-
-    except HTTPException:
-        raise
+        elif extensao == ".docx":
+            texto = extrair_texto_docx(file_bytes)
 
     except Exception as erro:
         raise HTTPException(
@@ -120,6 +137,5 @@ async def extract_text(file: UploadFile = File(...)):
             "Content-Disposition": f'attachment; filename="{nome_txt}"'
         }
     )
-
 
 "py -m uvicorn main:app --reload"
