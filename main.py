@@ -1,5 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
+import pdfplumber
+import io
 import os
 
 
@@ -15,6 +17,31 @@ def home():
     return {
         "message": "Web Service de Extração de Texto ativo."
     }
+
+
+def extrair_texto_pdf(file_bytes: bytes) -> str:
+    """
+    Função responsável por extrair texto de um ficheiro PDF.
+    Recebe o ficheiro em bytes e devolve o texto extraído.
+    """
+
+    texto_extraido = ""
+
+    # Abre o PDF a partir dos bytes recebidos no upload
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+
+        # Percorre todas as páginas do PDF
+        for numero_pagina, pagina in enumerate(pdf.pages, start=1):
+
+            # Extrai o texto da página atual
+            texto_pagina = pagina.extract_text()
+
+            # Se existir texto na página, adiciona ao resultado final
+            if texto_pagina:
+                texto_extraido += f"\n--- Página {numero_pagina} ---\n"
+                texto_extraido += texto_pagina + "\n"
+
+    return texto_extraido.strip()
 
 
 @app.post("/extract/text")
@@ -54,16 +81,38 @@ async def extract_text(file: UploadFile = File(...)):
             detail="O ficheiro enviado está vazio."
         )
 
-    # Texto temporário apenas para testar o endpoint
-    texto = f"Ficheiro recebido com sucesso: {nome_ficheiro}\n"
-    texto += f"Extensão detetada: {extensao}\n"
-    texto += "A extração real do texto será implementada no próximo passo."
+    try:
+        # Para já, neste commit, só extraímos texto de PDFs
+        if extensao == ".pdf":
+            texto = extrair_texto_pdf(file_bytes)
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="A extração de ficheiros DOCX será implementada no próximo passo."
+            )
+
+    except HTTPException:
+        raise
+
+    except Exception as erro:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao processar o ficheiro: {str(erro)}"
+        )
+
+    # Verifica se foi possível extrair algum texto
+    if not texto.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível extrair texto do documento. O ficheiro pode estar vazio ou conter apenas imagens."
+        )
 
     # Cria o nome do ficheiro TXT de resposta
     nome_base = os.path.splitext(nome_ficheiro)[0]
     nome_txt = f"{nome_base}.txt"
 
-    # Devolve um ficheiro TXT ao cliente
+    # Devolve o ficheiro TXT ao cliente
     return Response(
         content=texto,
         media_type="text/plain; charset=utf-8",
@@ -71,3 +120,6 @@ async def extract_text(file: UploadFile = File(...)):
             "Content-Disposition": f'attachment; filename="{nome_txt}"'
         }
     )
+
+
+"py -m uvicorn main:app --reload"
